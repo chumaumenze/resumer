@@ -5,7 +5,7 @@ use log::debug;
 use serde::{Deserialize, Serialize};
 use std::option::Option;
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 enum ResponseStatus {
     Success,
@@ -53,4 +53,49 @@ pub fn latex2pdf(raw_latex: String) -> Option<Response> {
         }
     };
     return Some(response_data);
+}
+
+#[cfg(test)]
+mod tests {
+    fn run_latex2pdf_test(latex: String) -> bool {
+        let pdf_res = super::latex2pdf(latex);
+        match pdf_res {
+            Some(res) if res.status == super::ResponseStatus::Success => {
+                let (pdf_data_uri, b64_end) = ("data:application/pdf;base64,", "==");
+                if let Some(s) = res.data.pdf {
+                    s.starts_with(pdf_data_uri) && s.ends_with(b64_end)
+                } else {
+                    false
+                }
+            }
+            _ => false,
+        }
+    }
+
+    #[test]
+    fn latex2pdf_with_valid_latex() {
+        let latex = r#"
+        \documentclass{article}
+        \begin{document}
+        Hello, world!
+        \end{document}
+        "#
+        .to_string();
+        // print!("{r:#?}", r = &pdf_res);
+        let is_match = run_latex2pdf_test(latex);
+        assert!(is_match, "Valid latex was converted to valid PDF type");
+    }
+
+    #[test]
+    fn latex2pdf_with_invalid_latex() {
+        let latex = r#"
+        \documentclass{article}
+        "#
+        .to_string();
+        let is_match = run_latex2pdf_test(latex);
+        assert!(
+            !is_match,
+            "The function returned valid output on invalid latex"
+        );
+    }
 }
