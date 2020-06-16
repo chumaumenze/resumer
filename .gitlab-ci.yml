@@ -1,0 +1,20 @@
+default:
+  image: "alpine:3.12"
+  tags:
+    - resumer
+  # Cancel all redundant jobs by default
+  interruptible: true
+
+variables:
+  GIT_SUBMODULE_STRATEGY: recursive # Fetch all Git Submodules
+
+stages:
+  - build
+  - test
+  - deploy
+  - clean
+
+include:
+  - local: app/serverless/.gitlab-ci.yml
+  - local: app/server/.gitlab-ci.yml
+  - local: app/client/.gitlab-ci.yml

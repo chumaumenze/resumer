@@ -1,0 +1,102 @@
+########################################
+#######        SERVERLESS        #######
+########################################
+
+image: "lambci/lambda:build-nodejs12.x"
+
+variables:
+  AWS_DEFAULT_REGION: $AWS_DEFAULT_REGION
+  AWS_ACCESS_KEY_ID: $AWS_ACCESS_KEY_ID
+  AWS_SECRET_ACCESS_KEY: $AWS_SECRET_ACCESS_KEY
+  PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: "true"
+
+cache:
+  paths:
+    - node_modules/
+
+stages:
+- build
+- test
+- deploy
+
+
+#### Jobs ####
+
+serverless:test:html2pdf:
+  image: "lambci/lambda:nodejs12.x"
+  stage: test
+  before_script:
+    - echo "Test HTML2PDF!!!"
+    - npm install -g yarn
+    - cd app/serverless/html2pdf
+    - yarn install --prod && yarn autoclean --force
+    - ls -asl
+#  artifacts:
+#    paths:
+#      - node_modules/
+  script:
+    - echo "Test!!!"
+    - ls -asl
+
+
+serverless:build:html2pdf:
+  stage: build
+  dependencies:
+    - serverless:build:html2pdf
+  artifacts:
+    when: on_success
+    paths:
+      - html2pdf_node_modules.zip
+      - html2pdf_function.zip
+  script:
+    - echo "Build HTML2PDF!!!"
+    - mkdir nodejs
+    - mv node_modules nodejs/
+    - zip -r9 html2pdf_node_modules.zip nodejs/
+    - zip -r9 html2pdf_function.zip html2pdf.js
+
+
+serverless:deploy:html2pdf:
+  stage: deploy
+  dependencies:
+    - serverless:build:html2pdf
+  script:
+    - echo "Deploy HTML2PDF!!!"
+    - ls -asl
+
+    # Upload zipfiles to S3
+    - HTML2PDF_S3_FOLDER=production/serverless/html2pdf
+    - LAMBDA_LAYERS_NODE_MODULES_S3_URL=s3://$AWS_S3_BUCKET_NAME/$HTML2PDF_S3_FOLDER/html2pdf_node_modules.zip
+    - LAMBDA_FUNCTION_S3_URL=s3://$AWS_S3_BUCKET_NAME/$HTML2PDF_S3_FOLDER/html2pdf_function.zip
+    - aws s3 cp html2pdf_node_modules.zip $LAMBDA_LAYERS_NODE_MODULES_S3_URL
+    - aws s3 cp html2pdf_function.zip $LAMBDA_FUNCTION_S3_URL
+
+    # Publish Lambda Layer
+    - aws lambda publish-layer-version \
+      --layer-name my-layer \
+      --description "My Python layer" \
+      --license-info "MIT" \
+      --content S3Bucket=$AWS_S3_BUCKET_NAME,S3Key=$HTML2PDF_S3_FOLDER/html2pdf_node_modules.zip \
+      --compatible-runtimes nodejs12.x nodejs10.x
+
+    # Check if function exists, then create/update Lambda function
+    - aws lambda get-function --function-name=$HTML2PDF_LAMBDA_FUNCTION_NAME > /dev/null 2>&1 && \
+
+      # Create Lambda function
+      aws lambda create-function \
+      --function-name $HTML2PDF_LAMBDA_FUNCTION_NAME \
+      --runtime $HTML2PDF_LAMBDA_RUNTIME \
+      --role $HTML2PDF_LAMBDA_EXEC_ROLE_ARN \
+      --handler $HTML2PDF_LAMBDA_FUNCTION_HANDLER \
+      --code S3Bucket=$AWS_S3_BUCKET_NAME,S3Key=$HTML2PDF_S3_FOLDER/html2pdf_node_modules.zip \
+      --memory-size 1024 || \
+
+      # Update Lambda function
+      aws lambda update-function-code \
+      --function-name $HTML2PDF_LAMBDA_FUNCTION_NAME \
+      --s3-bucket=$AWS_S3_BUCKET_NAME
+      --s3-key=$HTML2PDF_S3_FOLDER/html2pdf_node_modules.zip
+
+  when: on_success
+  only:
+    - master
